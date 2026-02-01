@@ -3,12 +3,12 @@
 ## 1. 개요
 
 ### 1.1 서비스 정의
-파편 기록을 **자동 구조화 → 결론 확정(Closure) → 문서/실행 → 검증/리텐션**으로 변환하는 Cloudflare 기반 풀스택 애플리케이션.
+파편 기록을 **자동 구조화 → 결론 확정(Closure) → 문서/실행 → 검증/리텐션**으로 변환하는 풀스택 애플리케이션.
 
 ### 1.2 설계 원칙
-- **Edge-First**: Cloudflare의 글로벌 엣지 네트워크 활용
 - **Serverless**: 서버 관리 없이 자동 스케일링
-- **Low Latency**: 사용자와 가장 가까운 엣지에서 처리
+- **Vector-Native**: pgvector로 의미 기반 검색 지원
+- **Auth-First**: Supabase Auth로 안전한 인증
 - **Cost Efficient**: 사용량 기반 과금, 초기 비용 최소화
 
 ---
@@ -26,40 +26,33 @@
 | UI Components | **Radix UI** | 접근성, 헤드리스 컴포넌트 |
 | Form | **React Hook Form + Zod** | 타입 안전한 폼 검증 |
 | Router | **React Router v7** | 표준 라우팅 |
-| API Client | **TanStack Query** | 서버 상태 관리, 캐싱 |
+| API Client | **TanStack Query + Supabase Client** | 서버 상태 관리, 실시간 구독 |
 
-### 2.2 Backend (Cloudflare Workers)
+### 2.2 Backend (Supabase)
 | 구분 | 기술 | 선택 이유 |
 |------|------|-----------|
-| Runtime | **Cloudflare Workers** | V8 isolates, 글로벌 엣지 |
-| Framework | **Hono** | 경량, Workers 최적화, Express 유사 API |
-| Language | **TypeScript** | 프론트엔드와 타입 공유 |
-| Validation | **Zod** | 런타임 타입 검증 |
-| Auth | **Cloudflare Access** 또는 **JWT** | Zero Trust 또는 커스텀 인증 |
+| Platform | **Supabase** | PostgreSQL + 통합 백엔드 서비스 |
+| Database | **PostgreSQL 15** | 강력한 SQL, ACID, 확장성 |
+| Vector Search | **pgvector** | 네이티브 벡터 검색, Evidence Bundle |
+| Auth | **Supabase Auth** | 소셜 로그인, JWT, RLS |
+| Edge Functions | **Deno Runtime** | 서버리스 API, TypeScript |
+| Realtime | **Supabase Realtime** | WebSocket 기반 실시간 동기화 |
+| Storage | **Supabase Storage** | 음성 파일, 첨부파일 |
 
-### 2.3 Database & Storage (Cloudflare)
+### 2.3 AI/LLM
 | 구분 | 서비스 | 용도 |
 |------|--------|------|
-| Primary DB | **D1** (SQLite) | 노트, 결정카드, 사용자 데이터 |
-| Key-Value | **KV** | 세션, 캐시, 설정 |
-| Object Storage | **R2** | 음성 파일, 첨부파일 |
-| Full-text Search | **D1 FTS5** | 노트 검색 |
+| LLM | **OpenAI GPT-4o-mini** | 분류, 요약, 질문 생성, 산출물 생성 |
+| Embedding | **OpenAI text-embedding-3-small** | 벡터 임베딩 (1536차원) |
+| 음성 전사 | **OpenAI Whisper API** | 음성 → 텍스트 변환 |
 
-### 2.4 AI/LLM
+### 2.4 인프라
 | 구분 | 서비스 | 용도 |
 |------|--------|------|
-| Primary | **Cloudflare Workers AI** | 분류, 요약, 임베딩 |
-| Fallback | **OpenAI API** (선택) | 복잡한 질문 생성, 고품질 요약 |
-| Embedding | **@cf/baai/bge-base-en-v1.5** | 관련 메모 연결 (Evidence Bundle) |
-
-### 2.5 인프라
-| 구분 | 서비스 | 용도 |
-|------|--------|------|
-| Hosting | **Cloudflare Pages** | 프론트엔드 배포 |
-| API | **Cloudflare Workers** | 백엔드 API |
-| Queue | **Cloudflare Queues** | 비동기 작업 (음성 전사 등) |
-| Cron | **Cloudflare Cron Triggers** | 주간 리뷰 알림 |
-| Analytics | **Cloudflare Analytics** | 사용량 모니터링 |
+| Frontend Hosting | **Cloudflare Pages** | 글로벌 CDN, 빠른 배포 |
+| Backend | **Supabase** | 통합 백엔드 플랫폼 |
+| Cron | **Supabase pg_cron** | 주간 리뷰 알림, 배치 작업 |
+| Monitoring | **Supabase Dashboard** | 로그, 메트릭, 알림 |
 
 ---
 
@@ -69,36 +62,48 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                           CLOUDFLARE EDGE                                │
+│                              FRONTEND                                    │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
 │  ┌──────────────┐    ┌──────────────────────────────────────────────┐  │
 │  │   Browser    │    │              Cloudflare Pages                 │  │
 │  │   (Client)   │───▶│         React SPA (Static Assets)            │  │
 │  └──────────────┘    └──────────────────────────────────────────────┘  │
 │         │                                                                │
-│         │ API Requests                                                   │
+│         │ Supabase Client (Auth, DB, Realtime, Storage)                 │
 │         ▼                                                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                              SUPABASE                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                     Cloudflare Workers                            │  │
+│  │                     Supabase Edge Functions                       │  │
 │  │  ┌─────────────────────────────────────────────────────────────┐ │  │
-│  │  │                    Hono API Server                          │ │  │
-│  │  │  /api/notes    /api/decisions   /api/reviews   /api/auth   │ │  │
+│  │  │              Deno Runtime (TypeScript)                      │ │  │
+│  │  │  /api/notes    /api/ai/classify   /api/ai/embed            │ │  │
 │  │  └─────────────────────────────────────────────────────────────┘ │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
 │         │              │                │                │              │
 │         ▼              ▼                ▼                ▼              │
-│  ┌──────────┐   ┌──────────┐    ┌──────────┐     ┌──────────────┐     │
-│  │    D1    │   │    R2    │    │    KV    │     │  Workers AI  │     │
-│  │ (SQLite) │   │ (Storage)│    │ (Cache)  │     │ (LLM/Embed)  │     │
-│  └──────────┘   └──────────┘    └──────────┘     └──────────────┘     │
-│                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │                     Cloudflare Queues                             │  │
-│  │     [음성 전사]  [AI 분류]  [임베딩 생성]  [알림 발송]            │  │
+│  │                     PostgreSQL + pgvector                         │  │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────────────────┐ │  │
+│  │  │  notes  │ │decisions│ │ reviews │ │  Vector Index (HNSW)   │ │  │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────────────────────┘ │  │
 │  └──────────────────────────────────────────────────────────────────┘  │
+│         │                                                    │          │
+│         ▼                                                    ▼          │
+│  ┌──────────────┐                              ┌──────────────────────┐│
+│  │   Storage    │                              │    Supabase Auth     ││
+│  │ (음성 파일)   │                              │  (JWT + RLS)         ││
+│  └──────────────┘                              └──────────────────────┘│
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+                         ┌──────────────────────┐
+                         │      OpenAI API      │
+                         │  GPT-4o / Embedding  │
+                         └──────────────────────┘
 ```
 
 ### 3.2 데이터 흐름
@@ -107,12 +112,35 @@
 [캡처] ──▶ [자동분류] ──▶ [요약/질문] ──▶ [Decision Card] ──▶ [산출물]
    │           │              │               │                  │
    ▼           ▼              ▼               ▼                  ▼
- D1/R2     Workers AI      Workers AI        D1              D1/Export
-              │                               │
-              └──────────▶ Embedding ◀───────┘
-                              │
-                              ▼
-                      Evidence Bundle
+ Supabase   OpenAI API    OpenAI API     PostgreSQL        PostgreSQL
+ Storage                                      │
+                                              │
+              ┌───────────────────────────────┘
+              ▼
+        [Embedding 생성]
+              │
+              ▼
+        [pgvector 저장]
+              │
+              ▼
+        [Evidence Bundle]
+        (유사 노트 검색)
+```
+
+### 3.3 인증 흐름
+
+```
+┌──────────┐     ┌──────────────┐     ┌─────────────────┐
+│  Client  │────▶│ Supabase Auth│────▶│   PostgreSQL    │
+│          │     │   (OAuth)    │     │   (RLS Policy)  │
+└──────────┘     └──────────────┘     └─────────────────┘
+     │                 │                      │
+     │    JWT Token    │      user_id         │
+     │◀────────────────│──────────────────────│
+     │                                        │
+     │         Row Level Security             │
+     │      (자동으로 user_id 필터링)          │
+     └────────────────────────────────────────┘
 ```
 
 ---
@@ -122,136 +150,140 @@
 ### 4.1 ERD 개요
 
 ```
-┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   users     │     │     notes       │     │ decision_cards  │
-├─────────────┤     ├─────────────────┤     ├─────────────────┤
-│ id (PK)     │◀───┤│ user_id (FK)    │     │ id (PK)         │
-│ email       │     │ id (PK)         │◀────│ note_id (FK)    │
-│ name        │     │ content         │     │ problem         │
-│ settings    │     │ type            │     │ options         │
-│ created_at  │     │ summary         │     │ criteria        │
-└─────────────┘     │ questions       │     │ risks           │
-                    │ status          │     │ conclusion      │
-                    │ embedding       │     │ status          │
-                    │ created_at      │     │ closed_at       │
-                    └─────────────────┘     └─────────────────┘
-                           │                        │
-                           ▼                        ▼
-                    ┌─────────────────┐     ┌─────────────────┐
-                    │ note_relations  │     │   artifacts     │
-                    ├─────────────────┤     ├─────────────────┤
-                    │ note_id (FK)    │     │ id (PK)         │
-                    │ related_id (FK) │     │ decision_id(FK) │
-                    │ similarity      │     │ type (adr/task) │
-                    │ reason          │     │ content         │
-                    └─────────────────┘     └─────────────────┘
-
-                    ┌─────────────────┐     ┌─────────────────┐
-                    │  review_queue   │     │  review_logs    │
-                    ├─────────────────┤     ├─────────────────┤
-                    │ id (PK)         │     │ id (PK)         │
-                    │ note_id (FK)    │     │ queue_id (FK)   │
-                    │ user_id (FK)    │     │ question        │
-                    │ next_review     │     │ answer          │
-                    │ interval_days   │     │ result_status   │
-                    │ review_count    │     │ reviewed_at     │
-                    └─────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  auth.users     │     │     notes       │     │ decision_cards  │
+│  (Supabase)     │     ├─────────────────┤     ├─────────────────┤
+├─────────────────┤     │ id (PK)         │     │ id (PK)         │
+│ id (UUID)       │◀────│ user_id (FK)    │     │ note_id (FK)    │◀┐
+│ email           │     │ content         │────▶│ problem         │ │
+│ ...             │     │ type            │     │ options         │ │
+└─────────────────┘     │ summary         │     │ criteria        │ │
+                        │ questions       │     │ risks           │ │
+┌─────────────────┐     │ embedding       │     │ conclusion      │ │
+│   profiles      │     │ status          │     │ status          │ │
+├─────────────────┤     │ created_at      │     │ confirmed_at    │ │
+│ id (FK→auth)    │     └─────────────────┘     └─────────────────┘ │
+│ display_name    │            │                        │           │
+│ settings        │            │                        ▼           │
+│ created_at      │            │                ┌─────────────────┐ │
+└─────────────────┘            │                │   artifacts     │ │
+                               │                ├─────────────────┤ │
+                               │                │ id (PK)         │ │
+                               │                │ decision_id(FK) │─┘
+                               │                │ type            │
+                               ▼                │ content         │
+                        ┌─────────────────┐     └─────────────────┘
+                        │  review_queue   │
+                        ├─────────────────┤     ┌─────────────────┐
+                        │ id (PK)         │     │  review_logs    │
+                        │ note_id (FK)    │     ├─────────────────┤
+                        │ user_id (FK)    │◀────│ queue_id (FK)   │
+                        │ next_review_at  │     │ question        │
+                        │ interval_days   │     │ answer          │
+                        │ review_count    │     │ result_status   │
+                        └─────────────────┘     └─────────────────┘
 ```
 
-### 4.2 테이블 상세 스키마
+### 4.2 테이블 상세 스키마 (PostgreSQL)
 
 ```sql
--- 사용자
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  name TEXT,
-  settings TEXT DEFAULT '{}',  -- JSON: {reviewDay, reviewTime, promptEnabled}
-  created_at INTEGER DEFAULT (unixepoch())
+-- pgvector 확장 활성화
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 사용자 프로필 (Supabase Auth 연동)
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  display_name TEXT,
+  settings JSONB DEFAULT '{
+    "reviewDay": 0,
+    "reviewTime": "09:00",
+    "promptEnabled": true,
+    "timezone": "Asia/Seoul"
+  }'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 노트 (메모/기록)
 CREATE TABLE notes (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   type TEXT CHECK(type IN ('idea','decision','todo','learning','journal')),
   type_confidence REAL DEFAULT 0.0,
-  summary TEXT,                -- 3줄 요약
-  questions TEXT,              -- JSON: 결론 질문 3개
-  audio_url TEXT,              -- R2 URL (음성인 경우)
+  summary TEXT,
+  questions JSONB DEFAULT '[]'::jsonb,
+  audio_url TEXT,
   status TEXT DEFAULT 'draft' CHECK(status IN ('draft','processing','ready','closed')),
-  embedding BLOB,              -- 벡터 (float32 array)
-  created_at INTEGER DEFAULT (unixepoch()),
-  updated_at INTEGER DEFAULT (unixepoch())
+  embedding vector(1536),  -- OpenAI text-embedding-3-small
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 벡터 검색을 위한 HNSW 인덱스
+CREATE INDEX notes_embedding_idx ON notes
+USING hnsw (embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
 
 -- 전문 검색 인덱스
-CREATE VIRTUAL TABLE notes_fts USING fts5(content, summary, content=notes, content_rowid=rowid);
-
--- 노트 연결 (Evidence Bundle)
-CREATE TABLE note_relations (
-  note_id TEXT NOT NULL REFERENCES notes(id),
-  related_note_id TEXT NOT NULL REFERENCES notes(id),
-  similarity REAL NOT NULL,
-  reason TEXT,                 -- 연결 이유
-  PRIMARY KEY (note_id, related_note_id)
-);
+CREATE INDEX notes_content_search_idx ON notes
+USING gin (to_tsvector('korean', content));
 
 -- 결정 카드
 CREATE TABLE decision_cards (
-  id TEXT PRIMARY KEY,
-  note_id TEXT UNIQUE NOT NULL REFERENCES notes(id),
-  problem TEXT,                -- 문제 정의
-  options TEXT,                -- JSON: 옵션 배열
-  criteria TEXT,               -- JSON: 평가 기준
-  risks TEXT,                  -- JSON: 리스크/가정
-  conclusion TEXT,             -- 결론
-  conclusion_reason TEXT,      -- 결론 근거
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  note_id UUID UNIQUE NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  problem TEXT,
+  options JSONB DEFAULT '[]'::jsonb,
+  criteria JSONB DEFAULT '[]'::jsonb,
+  risks JSONB DEFAULT '[]'::jsonb,
+  conclusion TEXT,
+  conclusion_reason TEXT,
   status TEXT DEFAULT 'draft' CHECK(status IN ('draft','confirmed')),
-  confirmed_at INTEGER,
-  created_at INTEGER DEFAULT (unixepoch()),
-  updated_at INTEGER DEFAULT (unixepoch())
+  confirmed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 결정 카드 수정 이력
 CREATE TABLE decision_revisions (
-  id TEXT PRIMARY KEY,
-  decision_id TEXT NOT NULL REFERENCES decision_cards(id),
-  previous_state TEXT NOT NULL, -- JSON snapshot
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  decision_id UUID NOT NULL REFERENCES decision_cards(id) ON DELETE CASCADE,
+  previous_state JSONB NOT NULL,
   reason TEXT,
-  created_at INTEGER DEFAULT (unixepoch())
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 산출물 (ADR, 체크리스트, If-Then)
 CREATE TABLE artifacts (
-  id TEXT PRIMARY KEY,
-  decision_id TEXT NOT NULL REFERENCES decision_cards(id),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  decision_id UUID NOT NULL REFERENCES decision_cards(id) ON DELETE CASCADE,
   type TEXT CHECK(type IN ('adr','checklist','if_then','verification')),
-  content TEXT NOT NULL,       -- JSON or Markdown
+  content JSONB NOT NULL,
   status TEXT DEFAULT 'active',
-  created_at INTEGER DEFAULT (unixepoch())
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 주간 리뷰 큐
 CREATE TABLE review_queue (
-  id TEXT PRIMARY KEY,
-  note_id TEXT NOT NULL REFERENCES notes(id),
-  user_id TEXT NOT NULL REFERENCES users(id),
-  next_review_at INTEGER NOT NULL,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  note_id UUID NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  next_review_at TIMESTAMPTZ NOT NULL,
   interval_days INTEGER DEFAULT 7,
   review_count INTEGER DEFAULT 0,
-  created_at INTEGER DEFAULT (unixepoch())
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 리뷰 로그
 CREATE TABLE review_logs (
-  id TEXT PRIMARY KEY,
-  queue_id TEXT NOT NULL REFERENCES review_queue(id),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  queue_id UUID NOT NULL REFERENCES review_queue(id) ON DELETE CASCADE,
   question TEXT NOT NULL,
   answer TEXT,
   result_status TEXT CHECK(result_status IN ('confirmed','in_progress','discarded','needs_info')),
-  reviewed_at INTEGER DEFAULT (unixepoch())
+  reviewed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 인덱스
@@ -260,217 +292,301 @@ CREATE INDEX idx_notes_type ON notes(type);
 CREATE INDEX idx_notes_status ON notes(status);
 CREATE INDEX idx_notes_created ON notes(created_at DESC);
 CREATE INDEX idx_review_queue_next ON review_queue(user_id, next_review_at);
+CREATE INDEX idx_decision_cards_note ON decision_cards(note_id);
+CREATE INDEX idx_artifacts_decision ON artifacts(decision_id);
+
+-- RLS (Row Level Security) 정책
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE decision_cards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE artifacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE review_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE review_logs ENABLE ROW LEVEL SECURITY;
+
+-- 사용자별 데이터 접근 정책
+CREATE POLICY "Users can access own profile"
+  ON profiles FOR ALL
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can access own notes"
+  ON notes FOR ALL
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own decisions"
+  ON decision_cards FOR ALL
+  USING (
+    note_id IN (SELECT id FROM notes WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users can access own artifacts"
+  ON artifacts FOR ALL
+  USING (
+    decision_id IN (
+      SELECT dc.id FROM decision_cards dc
+      JOIN notes n ON dc.note_id = n.id
+      WHERE n.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can access own review queue"
+  ON review_queue FOR ALL
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can access own review logs"
+  ON review_logs FOR ALL
+  USING (
+    queue_id IN (SELECT id FROM review_queue WHERE user_id = auth.uid())
+  );
+
+-- 프로필 자동 생성 트리거
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO profiles (id)
+  VALUES (NEW.id);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION handle_new_user();
+
+-- updated_at 자동 갱신 트리거
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER notes_updated_at
+  BEFORE UPDATE ON notes
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER decision_cards_updated_at
+  BEFORE UPDATE ON decision_cards
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+```
+
+### 4.3 벡터 검색 함수
+
+```sql
+-- 유사 노트 검색 (Evidence Bundle)
+CREATE OR REPLACE FUNCTION find_similar_notes(
+  target_note_id UUID,
+  match_count INT DEFAULT 3
+)
+RETURNS TABLE (
+  id UUID,
+  content TEXT,
+  summary TEXT,
+  similarity FLOAT
+) AS $$
+DECLARE
+  target_embedding vector(1536);
+  target_user_id UUID;
+BEGIN
+  -- 대상 노트의 임베딩과 user_id 조회
+  SELECT embedding, user_id INTO target_embedding, target_user_id
+  FROM notes
+  WHERE notes.id = target_note_id;
+
+  -- 유사 노트 반환
+  RETURN QUERY
+  SELECT
+    n.id,
+    n.content,
+    n.summary,
+    1 - (n.embedding <=> target_embedding) AS similarity
+  FROM notes n
+  WHERE n.id != target_note_id
+    AND n.user_id = target_user_id
+    AND n.embedding IS NOT NULL
+  ORDER BY n.embedding <=> target_embedding
+  LIMIT match_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 텍스트로 유사 노트 검색
+CREATE OR REPLACE FUNCTION search_notes_by_embedding(
+  query_embedding vector(1536),
+  user_uuid UUID,
+  match_count INT DEFAULT 10
+)
+RETURNS TABLE (
+  id UUID,
+  content TEXT,
+  summary TEXT,
+  type TEXT,
+  similarity FLOAT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    n.id,
+    n.content,
+    n.summary,
+    n.type,
+    1 - (n.embedding <=> query_embedding) AS similarity
+  FROM notes n
+  WHERE n.user_id = user_uuid
+    AND n.embedding IS NOT NULL
+  ORDER BY n.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 
 ---
 
 ## 5. API 설계
 
-### 5.1 RESTful API 엔드포인트
+### 5.1 Supabase Client (직접 호출)
+
+대부분의 CRUD는 Supabase Client로 직접 처리합니다.
+
+```typescript
+// Frontend에서 직접 호출
+const { data, error } = await supabase
+  .from('notes')
+  .select('*')
+  .order('created_at', { ascending: false });
+```
+
+### 5.2 Edge Functions (AI 처리)
+
+AI 관련 작업은 Edge Functions로 처리합니다.
 
 ```
-Base URL: /api/v1
+Base URL: https://<project-ref>.supabase.co/functions/v1
 ```
 
-#### 인증
 | Method | Endpoint | 설명 |
 |--------|----------|------|
-| POST | `/auth/login` | 로그인 (이메일/소셜) |
-| POST | `/auth/logout` | 로그아웃 |
-| GET | `/auth/me` | 현재 사용자 정보 |
+| POST | `/ai/classify` | 노트 자동 분류 + 요약 + 질문 생성 |
+| POST | `/ai/embed` | 임베딩 생성 + 저장 |
+| POST | `/ai/generate-artifacts` | ADR/체크리스트/If-Then 생성 |
+| POST | `/ai/transcribe` | 음성 전사 (Whisper) |
 
-#### 노트 (Notes)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/notes` | 노트 목록 (필터/페이지네이션) |
-| POST | `/notes` | 노트 생성 (텍스트/음성) |
-| GET | `/notes/:id` | 노트 상세 |
-| PATCH | `/notes/:id` | 노트 수정 |
-| DELETE | `/notes/:id` | 노트 삭제 |
-| GET | `/notes/:id/relations` | 관련 노트 (Evidence Bundle) |
-| POST | `/notes/:id/reclassify` | 수동 재분류 |
+### 5.3 Database Functions (RPC)
 
-#### 결정 카드 (Decision Cards)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| POST | `/notes/:id/decision` | Decision Card 생성 |
-| GET | `/decisions/:id` | Decision Card 상세 |
-| PATCH | `/decisions/:id` | Decision Card 수정 |
-| POST | `/decisions/:id/confirm` | 결론 확정 (Closure) |
-| POST | `/decisions/:id/revise` | 개정 생성 |
+복잡한 쿼리는 Database Functions로 처리합니다.
 
-#### 산출물 (Artifacts)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/decisions/:id/artifacts` | 산출물 목록 |
-| GET | `/artifacts/:id` | 산출물 상세 |
-| PATCH | `/artifacts/:id` | 산출물 수정 (체크리스트 완료 등) |
-| GET | `/artifacts/:id/export` | 내보내기 (Markdown) |
+| Function | 설명 |
+|----------|------|
+| `find_similar_notes(note_id, count)` | Evidence Bundle 조회 |
+| `search_notes_by_embedding(embedding, user_id, count)` | 벡터 검색 |
+| `get_pending_reviews(user_id, limit)` | 주간 리뷰 대상 조회 |
+| `update_review_interval(queue_id, status)` | 스페이싱 간격 조정 |
 
-#### 주간 리뷰 (Weekly Review)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/reviews/pending` | 이번 주 리뷰 대상 (최대 5개) |
-| POST | `/reviews/:queueId/answer` | 리뷰 답변 제출 |
-| GET | `/reviews/history` | 리뷰 이력 |
+### 5.4 Request/Response 예시
 
-#### 검색 (Search)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/search` | 통합 검색 (키워드 + 필터) |
-| GET | `/search/similar` | 유사 노트 검색 (벡터) |
+#### POST /functions/v1/ai/classify
 
-#### 설정 (Settings)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/settings` | 사용자 설정 조회 |
-| PATCH | `/settings` | 사용자 설정 수정 |
-
-### 5.2 Request/Response 예시
-
-#### POST /api/v1/notes
-```json
+```typescript
 // Request
 {
-  "content": "NL2SQL message bus 적용 방안 검토",
-  "type": "text"  // "text" | "audio"
+  "noteId": "uuid-xxx",
+  "content": "NL2SQL message bus 적용 방안 검토"
 }
 
 // Response
 {
-  "id": "note_abc123",
-  "content": "NL2SQL message bus 적용 방안 검토",
   "type": "decision",
-  "typeConfidence": 0.87,
+  "confidence": 0.87,
   "summary": "1. NL2SQL 아키텍처에 message bus 도입 검토\n2. 비동기 처리로 응답 시간 개선 기대\n3. 복잡도 증가와 트레이드오프 필요",
   "questions": [
     "이 결정을 내리게 된 핵심 문제는 무엇인가요?",
     "검토 중인 대안은 무엇이 있나요?",
     "이 결정의 성공을 어떻게 측정할 수 있나요?"
-  ],
-  "relatedNotes": [
-    {
-      "id": "note_xyz789",
-      "summary": "기존 동기 처리 방식의 성능 이슈",
-      "similarity": 0.82,
-      "reason": "message bus 관련 이전 논의"
-    }
-  ],
-  "status": "ready",
-  "createdAt": "2026-02-01T10:30:00Z"
+  ]
 }
 ```
 
-#### POST /api/v1/decisions/:id/confirm
-```json
-// Request
-{
-  "conclusion": "Kafka 기반 message bus 도입",
-  "conclusionReason": "확장성과 팀 경험 고려"
-}
+#### RPC: find_similar_notes
+
+```typescript
+const { data: relatedNotes } = await supabase
+  .rpc('find_similar_notes', {
+    target_note_id: noteId,
+    match_count: 3
+  });
 
 // Response
-{
-  "id": "dec_def456",
-  "status": "confirmed",
-  "confirmedAt": "2026-02-01T11:00:00Z",
-  "artifacts": {
-    "adr": {
-      "id": "art_001",
-      "content": "# ADR-001: Kafka Message Bus 도입\n\n## 상태\n확정\n\n## 맥락\n..."
-    },
-    "checklist": {
-      "id": "art_002",
-      "items": [
-        { "text": "Kafka 클러스터 설정", "done": false },
-        { "text": "Producer/Consumer 구현", "done": false }
-      ]
-    },
-    "ifThen": {
-      "id": "art_003",
-      "plans": [
-        { "if": "다음 스프린트 시작", "then": "Kafka PoC 환경 구성" },
-        { "if": "PoC 완료", "then": "프로덕션 마이그레이션 계획 수립" }
-      ]
-    },
-    "verification": {
-      "id": "art_004",
-      "question": "메시지 처리 지연이 100ms 이하로 유지되고 있는가?",
-      "scheduledAt": "2026-02-08T10:00:00Z"
-    }
+[
+  {
+    "id": "uuid-yyy",
+    "content": "기존 동기 처리 방식의 성능 이슈",
+    "summary": "...",
+    "similarity": 0.82
   }
-}
+]
 ```
 
 ---
 
 ## 6. 프로젝트 구조
 
-### 6.1 모노레포 구조 (Turborepo)
+### 6.1 모노레포 구조
 
 ```
 ezs/
 ├── apps/
-│   ├── web/                    # React Frontend (Cloudflare Pages)
+│   ├── web/                      # React Frontend (Cloudflare Pages)
 │   │   ├── src/
-│   │   │   ├── components/     # UI 컴포넌트
-│   │   │   │   ├── ui/         # 기본 UI (Button, Input, Card...)
-│   │   │   │   ├── notes/      # 노트 관련 컴포넌트
-│   │   │   │   ├── decisions/  # Decision Card 컴포넌트
-│   │   │   │   ├── reviews/    # 주간 리뷰 컴포넌트
-│   │   │   │   └── layout/     # 레이아웃 컴포넌트
-│   │   │   ├── pages/          # 페이지 컴포넌트
-│   │   │   ├── hooks/          # 커스텀 훅
-│   │   │   ├── stores/         # Zustand 스토어
-│   │   │   ├── lib/            # 유틸리티
-│   │   │   ├── api/            # API 클라이언트
-│   │   │   └── types/          # 타입 정의
+│   │   │   ├── components/       # UI 컴포넌트
+│   │   │   │   ├── ui/           # 기본 UI (Button, Input, Card...)
+│   │   │   │   ├── notes/        # 노트 관련 컴포넌트
+│   │   │   │   ├── decisions/    # Decision Card 컴포넌트
+│   │   │   │   ├── reviews/      # 주간 리뷰 컴포넌트
+│   │   │   │   └── layout/       # 레이아웃 컴포넌트
+│   │   │   ├── pages/            # 페이지 컴포넌트
+│   │   │   ├── hooks/            # 커스텀 훅
+│   │   │   ├── stores/           # Zustand 스토어
+│   │   │   ├── lib/
+│   │   │   │   ├── supabase.ts   # Supabase 클라이언트
+│   │   │   │   └── utils.ts      # 유틸리티
+│   │   │   └── types/            # 타입 정의
 │   │   ├── public/
 │   │   ├── index.html
 │   │   ├── vite.config.ts
 │   │   └── package.json
 │   │
-│   └── api/                    # Cloudflare Workers Backend
-│       ├── src/
-│       │   ├── routes/         # API 라우트
-│       │   │   ├── auth.ts
-│       │   │   ├── notes.ts
-│       │   │   ├── decisions.ts
-│       │   │   ├── artifacts.ts
-│       │   │   ├── reviews.ts
-│       │   │   └── search.ts
-│       │   ├── services/       # 비즈니스 로직
-│       │   │   ├── note.service.ts
-│       │   │   ├── ai.service.ts
-│       │   │   ├── decision.service.ts
-│       │   │   └── review.service.ts
-│       │   ├── repositories/   # 데이터 접근
-│       │   ├── middleware/     # 미들웨어 (auth, cors, error)
-│       │   ├── lib/            # 유틸리티
-│       │   │   ├── db.ts       # D1 헬퍼
-│       │   │   ├── ai.ts       # Workers AI 래퍼
-│       │   │   └── storage.ts  # R2 헬퍼
-│       │   ├── types/
-│       │   └── index.ts        # 엔트리포인트
-│       ├── wrangler.toml       # Cloudflare 설정
-│       └── package.json
+│   └── supabase/                 # Supabase 설정 및 Edge Functions
+│       ├── functions/            # Edge Functions
+│       │   ├── ai-classify/
+│       │   │   └── index.ts
+│       │   ├── ai-embed/
+│       │   │   └── index.ts
+│       │   ├── ai-generate-artifacts/
+│       │   │   └── index.ts
+│       │   └── ai-transcribe/
+│       │       └── index.ts
+│       ├── migrations/           # 데이터베이스 마이그레이션
+│       │   ├── 20240201000000_init.sql
+│       │   ├── 20240201000001_vector.sql
+│       │   └── 20240201000002_functions.sql
+│       ├── seed.sql              # 시드 데이터
+│       └── config.toml           # Supabase 설정
 │
 ├── packages/
-│   ├── shared/                 # 공유 코드
-│   │   ├── types/              # 공유 타입 (Note, Decision, etc.)
-│   │   ├── constants/          # 상수
-│   │   ├── validators/         # Zod 스키마
-│   │   └── package.json
-│   │
-│   └── ui/                     # 공유 UI 컴포넌트 (선택)
+│   └── shared/                   # 공유 코드
+│       ├── types/                # 공유 타입 (Note, Decision, etc.)
+│       ├── constants/            # 상수
+│       ├── validators/           # Zod 스키마
 │       └── package.json
 │
-├── docs/                       # 문서
-│   ├── architecture.md         # 이 문서
-│   ├── api.md                  # API 문서
-│   └── setup.md                # 개발 환경 설정
+├── docs/                         # 문서
+│   ├── architecture.md           # 이 문서
+│   ├── setup.md                  # 개발 환경 설정
+│   └── adr/                      # Architecture Decision Records
 │
-├── turbo.json                  # Turborepo 설정
+├── turbo.json                    # Turborepo 설정
 ├── pnpm-workspace.yaml
 ├── package.json
 └── README.md
@@ -478,229 +594,287 @@ ezs/
 
 ### 6.2 주요 설정 파일
 
-#### turbo.json
-```json
-{
-  "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": ["**/.env.*local"],
-  "tasks": {
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**"]
-    },
-    "dev": {
-      "cache": false,
-      "persistent": true
-    },
-    "lint": {},
-    "typecheck": {
-      "dependsOn": ["^build"]
-    }
-  }
-}
+#### apps/supabase/config.toml
+```toml
+[project]
+project_id = "your-project-ref"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["https://ezs.pages.dev"]
+
+[auth.external.google]
+enabled = true
+client_id = "env(GOOGLE_CLIENT_ID)"
+secret = "env(GOOGLE_CLIENT_SECRET)"
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
 ```
 
-#### apps/api/wrangler.toml
-```toml
-name = "ezs-api"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "ezs-db"
-database_id = "<YOUR_D1_DATABASE_ID>"
-
-[[r2_buckets]]
-binding = "STORAGE"
-bucket_name = "ezs-storage"
-
-[[kv_namespaces]]
-binding = "CACHE"
-id = "<YOUR_KV_NAMESPACE_ID>"
-
-[ai]
-binding = "AI"
-
-[[queues.producers]]
-binding = "TASK_QUEUE"
-queue = "ezs-tasks"
-
-[[queues.consumers]]
-queue = "ezs-tasks"
-max_batch_size = 10
-max_batch_timeout = 30
-
-[vars]
-ENVIRONMENT = "development"
-
-# Cron Triggers (주간 리뷰 알림)
-[triggers]
-crons = ["0 9 * * 0"]  # 매주 일요일 09:00 UTC
+#### apps/web/.env.local
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
 ---
 
 ## 7. 핵심 모듈 설계
 
-### 7.1 AI 분류 서비스
+### 7.1 Supabase 클라이언트 설정
 
 ```typescript
-// apps/api/src/services/ai.service.ts
+// apps/web/src/lib/supabase.ts
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database';
 
-interface ClassificationResult {
-  type: 'idea' | 'decision' | 'todo' | 'learning' | 'journal';
-  confidence: number;
-  summary: string;
-  questions: string[];
-}
+export const supabase = createClient<Database>(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
+```
 
-export class AIService {
-  constructor(private ai: Ai) {}
+### 7.2 AI 분류 Edge Function
 
-  async classifyAndSummarize(content: string): Promise<ClassificationResult> {
-    const prompt = `다음 메모를 분석하세요:
+```typescript
+// apps/supabase/functions/ai-classify/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import OpenAI from 'https://esm.sh/openai@4';
 
-"${content}"
+const openai = new OpenAI({
+  apiKey: Deno.env.get('OPENAI_API_KEY'),
+});
 
-1. 유형 분류 (idea/decision/todo/learning/journal)
-2. 3줄 요약
-3. 유형별 질문 3개:
-   - decision: 의도/옵션/검증 기준
-   - idea: 핵심 가치/구현 방법/리스크
-   - todo: 완료 기준/우선순위/의존성
-   - learning: 핵심 인사이트/적용 방법/추가 학습
-   - journal: 감정/배운 점/다음 행동
+serve(async (req) => {
+  const { noteId, content } = await req.json();
 
-JSON 형식으로 응답:
-{"type": "...", "confidence": 0.0-1.0, "summary": "...", "questions": ["...", "...", "..."]}`;
+  // 분류 + 요약 + 질문 생성
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      {
+        role: 'system',
+        content: `당신은 메모 분류 전문가입니다. 다음 메모를 분석하세요.
 
-    const response = await this.ai.run('@cf/meta/llama-3.1-8b-instruct', {
-      prompt,
-      max_tokens: 500,
-    });
+유형 분류 (idea/decision/todo/learning/journal):
+- idea: 새로운 아이디어, 영감, 가능성
+- decision: 선택/결정이 필요한 상황
+- todo: 해야 할 작업, 실행 항목
+- learning: 배운 것, 인사이트, 지식
+- journal: 일상 기록, 감정, 성찰
 
-    return JSON.parse(response.response);
-  }
+JSON으로 응답:
+{
+  "type": "...",
+  "confidence": 0.0-1.0,
+  "summary": "3줄 요약 (줄바꿈으로 구분)",
+  "questions": ["질문1", "질문2", "질문3"]
+}`,
+      },
+      {
+        role: 'user',
+        content,
+      },
+    ],
+    response_format: { type: 'json_object' },
+  });
 
-  async generateEmbedding(text: string): Promise<number[]> {
-    const result = await this.ai.run('@cf/baai/bge-base-en-v1.5', {
-      text: [text],
-    });
-    return result.data[0];
-  }
+  const result = JSON.parse(completion.choices[0].message.content);
 
-  async generateArtifacts(decision: DecisionCard): Promise<Artifacts> {
-    // ADR, If-Then, Checklist, Verification 생성
-    // ...
-  }
+  // 데이터베이스 업데이트
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  await supabase
+    .from('notes')
+    .update({
+      type: result.type,
+      type_confidence: result.confidence,
+      summary: result.summary,
+      questions: result.questions,
+      status: 'ready',
+    })
+    .eq('id', noteId);
+
+  return new Response(JSON.stringify(result), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+});
+```
+
+### 7.3 임베딩 생성 Edge Function
+
+```typescript
+// apps/supabase/functions/ai-embed/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import OpenAI from 'https://esm.sh/openai@4';
+
+const openai = new OpenAI({
+  apiKey: Deno.env.get('OPENAI_API_KEY'),
+});
+
+serve(async (req) => {
+  const { noteId, content } = await req.json();
+
+  // 임베딩 생성
+  const embeddingResponse = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: content,
+  });
+
+  const embedding = embeddingResponse.data[0].embedding;
+
+  // 데이터베이스 저장
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+
+  await supabase
+    .from('notes')
+    .update({ embedding })
+    .eq('id', noteId);
+
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+});
+```
+
+### 7.4 Evidence Bundle 훅
+
+```typescript
+// apps/web/src/hooks/useRelatedNotes.ts
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
+
+export function useRelatedNotes(noteId: string | undefined) {
+  return useQuery({
+    queryKey: ['related-notes', noteId],
+    queryFn: async () => {
+      if (!noteId) return [];
+
+      const { data, error } = await supabase.rpc('find_similar_notes', {
+        target_note_id: noteId,
+        match_count: 3,
+      });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!noteId,
+  });
 }
 ```
 
-### 7.2 Evidence Bundle 서비스
+### 7.5 주간 리뷰 서비스
 
 ```typescript
-// apps/api/src/services/evidence.service.ts
+// apps/web/src/hooks/useReviews.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
 
-export class EvidenceService {
-  constructor(
-    private db: D1Database,
-    private ai: AIService
-  ) {}
+export function usePendingReviews() {
+  return useQuery({
+    queryKey: ['pending-reviews'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-  async findRelatedNotes(noteId: string, limit = 3): Promise<RelatedNote[]> {
-    const note = await this.db
-      .prepare('SELECT embedding FROM notes WHERE id = ?')
-      .bind(noteId)
-      .first();
+      const { data, error } = await supabase
+        .from('review_queue')
+        .select(`
+          *,
+          notes (id, content, summary),
+          decision_cards (id, conclusion)
+        `)
+        .eq('user_id', user.id)
+        .lte('next_review_at', new Date().toISOString())
+        .order('next_review_at')
+        .limit(5);
 
-    if (!note?.embedding) return [];
-
-    // 코사인 유사도 기반 검색 (D1에서 직접 계산)
-    const related = await this.db
-      .prepare(`
-        SELECT
-          id,
-          summary,
-          embedding,
-          (
-            SELECT SUM(a.v * b.v) / (
-              SQRT(SUM(a.v * a.v)) * SQRT(SUM(b.v * b.v))
-            )
-            FROM json_each(notes.embedding) a, json_each(?) b
-            WHERE a.key = b.key
-          ) as similarity
-        FROM notes
-        WHERE id != ? AND user_id = (SELECT user_id FROM notes WHERE id = ?)
-        ORDER BY similarity DESC
-        LIMIT ?
-      `)
-      .bind(note.embedding, noteId, noteId, limit)
-      .all();
-
-    return related.results.map((r) => ({
-      id: r.id,
-      summary: r.summary,
-      similarity: r.similarity,
-      reason: this.generateReason(r),
-    }));
-  }
+      if (error) throw error;
+      return data;
+    },
+  });
 }
-```
 
-### 7.3 주간 리뷰 스케줄러
+export function useSubmitReview() {
+  const queryClient = useQueryClient();
 
-```typescript
-// apps/api/src/services/review.service.ts
+  return useMutation({
+    mutationFn: async ({
+      queueId,
+      question,
+      answer,
+      status,
+    }: {
+      queueId: string;
+      question: string;
+      answer: string;
+      status: 'confirmed' | 'in_progress' | 'discarded' | 'needs_info';
+    }) => {
+      // 리뷰 로그 저장
+      await supabase.from('review_logs').insert({
+        queue_id: queueId,
+        question,
+        answer,
+        result_status: status,
+      });
 
-export class ReviewService {
-  constructor(private db: D1Database) {}
+      // 다음 리뷰 간격 조정
+      const intervalMultiplier = status === 'confirmed' ? 1.5 : 0.75;
 
-  async getPendingReviews(userId: string, limit = 5): Promise<ReviewItem[]> {
-    const now = Date.now() / 1000;
+      const { data: queue } = await supabase
+        .from('review_queue')
+        .select('interval_days, review_count')
+        .eq('id', queueId)
+        .single();
 
-    return this.db
-      .prepare(`
-        SELECT rq.*, n.content, n.summary, dc.conclusion
-        FROM review_queue rq
-        JOIN notes n ON n.id = rq.note_id
-        LEFT JOIN decision_cards dc ON dc.note_id = n.id
-        WHERE rq.user_id = ? AND rq.next_review_at <= ?
-        ORDER BY rq.next_review_at ASC
-        LIMIT ?
-      `)
-      .bind(userId, now, limit)
-      .all();
-  }
+      if (queue) {
+        const newInterval = Math.max(1, Math.min(30,
+          Math.round(queue.interval_days * intervalMultiplier)
+        ));
 
-  async submitReview(
-    queueId: string,
-    answer: string,
-    status: ReviewStatus
-  ): Promise<void> {
-    // 리뷰 로그 저장
-    await this.db
-      .prepare(`
-        INSERT INTO review_logs (id, queue_id, question, answer, result_status)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-      .bind(generateId(), queueId, question, answer, status)
-      .run();
-
-    // 다음 리뷰 간격 조정 (간단 룰)
-    const intervalMultiplier = status === 'confirmed' ? 1.5 : 0.75;
-    await this.db
-      .prepare(`
-        UPDATE review_queue
-        SET
-          interval_days = MAX(1, MIN(30, interval_days * ?)),
-          next_review_at = unixepoch() + (interval_days * 86400),
-          review_count = review_count + 1
-        WHERE id = ?
-      `)
-      .bind(intervalMultiplier, queueId)
-      .run();
-  }
+        await supabase
+          .from('review_queue')
+          .update({
+            interval_days: newInterval,
+            next_review_at: new Date(
+              Date.now() + newInterval * 24 * 60 * 60 * 1000
+            ).toISOString(),
+            review_count: queue.review_count + 1,
+          })
+          .eq('id', queueId);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pending-reviews'] });
+    },
+  });
 }
 ```
 
@@ -709,19 +883,28 @@ export class ReviewService {
 ## 8. 보안 고려사항
 
 ### 8.1 인증/인가
-- **방식**: JWT 기반 또는 Cloudflare Access
-- **세션 관리**: KV에 세션 토큰 저장 (TTL 24시간)
-- **API 보호**: 모든 엔드포인트에 인증 미들웨어 적용
+- **Supabase Auth**: OAuth (Google, GitHub), Magic Link
+- **JWT**: 자동 관리, 만료 시 자동 갱신
+- **RLS (Row Level Security)**: 모든 테이블에 적용, user_id 기반 격리
 
 ### 8.2 데이터 보호
-- **전송 암호화**: HTTPS 강제 (Cloudflare 기본)
-- **저장 암호화**: D1/R2 기본 암호화
-- **개인 데이터 분리**: user_id 기반 데이터 격리
+- **전송 암호화**: HTTPS 강제
+- **저장 암호화**: Supabase 기본 암호화
+- **API 키 분리**: anon key (공개), service role key (서버만)
 
-### 8.3 API 보안
-- **Rate Limiting**: Cloudflare Rate Limiting 규칙
-- **Input Validation**: Zod 스키마로 모든 입력 검증
-- **CORS**: 허용 도메인만 접근
+### 8.3 Edge Function 보안
+```typescript
+// 인증 확인
+const authHeader = req.headers.get('Authorization');
+const supabase = createClient(url, anonKey, {
+  global: { headers: { Authorization: authHeader } },
+});
+
+const { data: { user }, error } = await supabase.auth.getUser();
+if (error || !user) {
+  return new Response('Unauthorized', { status: 401 });
+}
+```
 
 ---
 
@@ -729,45 +912,62 @@ export class ReviewService {
 
 ### 9.1 프론트엔드
 - **Code Splitting**: React.lazy + Suspense
-- **이미지 최적화**: Cloudflare Images (필요시)
-- **캐싱**: TanStack Query + staleTime 설정
+- **캐싱**: TanStack Query (staleTime: 5분)
+- **Optimistic Updates**: 즉각적인 UI 반응
 
-### 9.2 백엔드
-- **Edge Caching**: KV 캐시 (검색 결과, 설정)
-- **DB 최적화**: 적절한 인덱스, 페이지네이션
-- **비동기 처리**: Queues로 무거운 작업 분리
+### 9.2 데이터베이스
+- **인덱스**: 쿼리 패턴에 맞는 인덱스 설계
+- **HNSW 인덱스**: 벡터 검색 가속 (O(log n))
+- **Connection Pooling**: Supabase Pooler (Supavisor)
 
-### 9.3 AI 처리
-- **배치 처리**: 여러 노트 동시 분류
-- **캐싱**: 동일 내용 분류 결과 캐시
-- **Fallback**: Workers AI 실패 시 대체 로직
+### 9.3 벡터 검색 최적화
+```sql
+-- HNSW 인덱스 파라미터
+-- m: 각 노드의 연결 수 (높을수록 정확, 느림)
+-- ef_construction: 인덱스 구축 시 탐색 범위
+CREATE INDEX notes_embedding_idx ON notes
+USING hnsw (embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
+
+-- 검색 시 ef_search 조정 (정확도 vs 속도)
+SET hnsw.ef_search = 40;
+```
 
 ---
 
 ## 10. 모니터링 & 로깅
 
-### 10.1 메트릭
-- **Cloudflare Analytics**: 요청 수, 에러율, 응답 시간
-- **커스텀 메트릭**: KV에 집계 (DAU, 캡처 수, Closure율)
+### 10.1 Supabase Dashboard
+- **Database**: 쿼리 성능, 연결 수, 스토리지
+- **Auth**: 로그인 시도, 활성 사용자
+- **Edge Functions**: 실행 횟수, 에러, 지연 시간
+- **Storage**: 사용량, 대역폭
 
-### 10.2 로깅
-- **Workers Logs**: console.log → Cloudflare Dashboard
-- **에러 추적**: Sentry 또는 Cloudflare Logpush (선택)
+### 10.2 커스텀 로깅
+```typescript
+// Edge Function 로깅
+console.log(JSON.stringify({
+  event: 'ai_classify',
+  noteId,
+  type: result.type,
+  confidence: result.confidence,
+  latencyMs: Date.now() - startTime,
+}));
+```
 
 ### 10.3 알림
-- **에러 알림**: 임계값 초과 시 Slack/Email
-- **성능 저하**: 응답 시간 P95 초과 시 알림
+- Supabase Webhooks → Slack/Discord
 
 ---
 
 ## 11. 배포 전략
 
 ### 11.1 환경 구성
-| 환경 | 용도 | Cloudflare 프로젝트 |
-|------|------|---------------------|
-| Development | 로컬 개발 | - |
-| Staging | 테스트/QA | ezs-staging |
-| Production | 실서비스 | ezs-prod |
+| 환경 | Frontend | Supabase 프로젝트 |
+|------|----------|-------------------|
+| Development | localhost:5173 | ezs-dev |
+| Staging | ezs-staging.pages.dev | ezs-staging |
+| Production | ezs.pages.dev | ezs-prod |
 
 ### 11.2 CI/CD 파이프라인 (GitHub Actions)
 
@@ -780,7 +980,7 @@ on:
     branches: [main, staging]
 
 jobs:
-  deploy:
+  deploy-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -798,20 +998,35 @@ jobs:
         run: pnpm install
 
       - name: Build
-        run: pnpm build
+        run: pnpm --filter web build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
-      - name: Deploy API to Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          workingDirectory: apps/api
-
-      - name: Deploy Web to Pages
+      - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           projectName: ezs-web
           directory: apps/web/dist
+
+  deploy-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+
+      - name: Deploy migrations
+        run: supabase db push --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy Edge Functions
+        run: supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 ```
 
 ---
@@ -820,21 +1035,21 @@ jobs:
 
 ### Phase 1: 기반 구축 (Week 1-2)
 - [ ] 프로젝트 초기 설정 (Turborepo, TypeScript)
-- [ ] Cloudflare 리소스 생성 (D1, R2, KV)
-- [ ] 기본 인증 플로우
+- [ ] Supabase 프로젝트 생성
 - [ ] 데이터베이스 스키마 마이그레이션
-- [ ] API 기본 구조 (Hono)
+- [ ] Supabase Auth 설정 (Google OAuth)
 - [ ] 프론트엔드 기본 구조 (React + Vite)
+- [ ] Supabase 클라이언트 설정
 
 ### Phase 2: 캡처 & 자동 구조화 (Week 3-4)
 - [ ] 텍스트 캡처 (입력/저장)
 - [ ] 음성 캡처 (녹음/업로드/전사)
-- [ ] AI 자동 분류
-- [ ] 3줄 요약 + 질문 생성
-- [ ] Evidence Bundle (관련 노트 연결)
+- [ ] AI 분류 Edge Function
+- [ ] 임베딩 생성 Edge Function
+- [ ] Evidence Bundle (pgvector 검색)
 
 ### Phase 3: Decision Card & Closure (Week 5-6)
-- [ ] Decision Card UI/API
+- [ ] Decision Card UI/로직
 - [ ] 질문 기반 필드 자동 채움
 - [ ] 결론 확정 (Closure) 플로우
 - [ ] 산출물 자동 생성 (ADR, If-Then, 체크리스트)
@@ -849,11 +1064,22 @@ jobs:
 
 ---
 
-## 13. 참고 자료
+## 13. 비용 예측 (월간)
 
-- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [Cloudflare D1 Documentation](https://developers.cloudflare.com/d1/)
-- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)
-- [Hono Framework](https://hono.dev/)
+| 서비스 | 무료 티어 | 예상 사용량 | 예상 비용 |
+|--------|-----------|-------------|-----------|
+| Supabase (Pro) | - | DB + Auth + Storage | $25/월 |
+| Cloudflare Pages | 무제한 | 정적 호스팅 | $0 |
+| OpenAI API | - | 10K 분류 + 10K 임베딩 | $5-10/월 |
+| **총합** | | | **$30-35/월** |
+
+---
+
+## 14. 참고 자료
+
+- [Supabase Documentation](https://supabase.com/docs)
+- [pgvector Documentation](https://github.com/pgvector/pgvector)
+- [Supabase Edge Functions](https://supabase.com/docs/guides/functions)
+- [OpenAI API](https://platform.openai.com/docs)
 - [TanStack Query](https://tanstack.com/query)
-- [Zustand](https://zustand-demo.pmnd.rs/)
+- [Cloudflare Pages](https://developers.cloudflare.com/pages/)
